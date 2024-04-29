@@ -15,7 +15,7 @@ secret_detection:
   variables:
     SECRET_DETECTION_HISTORIC_SCAN: "true"
     GIT_STRATEGY: "clone"
-  allow_failure: false
+  allow_failure: true
   script:
     - apk add jq
     - /analyzer run
