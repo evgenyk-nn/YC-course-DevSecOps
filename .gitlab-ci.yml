@@ -29,6 +29,17 @@ sast:
     KUBESEC_HELM_CHARTS_PATH: "./k8s/finenomore"
     SAST_EXCLUDED_ANALYZERS: "bandit,gosec,eslint"
 
+trivy-sca:
+  stage: pre-build
+  image:
+    name: aquasec/trivy:0.34.0
+    entrypoint: [""]
+  script:
+    - trivy fs -f json --output trivy-sca.json .
+  artifacts:
+    paths:
+      - trivy-sca.json
+
 kaniko-build:
   image:
     name: gcr.io/kaniko-project/executor:v1.9.0-debug
