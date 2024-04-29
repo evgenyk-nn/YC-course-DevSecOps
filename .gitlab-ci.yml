@@ -1,0 +1,30 @@
+stages:
+  - build
+  - deploy
+
+variables:
+  IMAGE_NAME: "${CI_REGISTRY_IMAGE}/${CI_COMMIT_REF_SLUG}:${CI_COMMIT_SHA}"
+  GITLAB_AGENT: "$CI_PROJECT_PATH:finenomore-gitlab-agent"
+
+kaniko-build:
+  image:
+    name: gcr.io/kaniko-project/executor:v1.9.0-debug
+    entrypoint: [""]
+  stage: build
+  script:
+    - /kaniko/executor
+      --context "${CI_PROJECT_DIR}"
+      --dockerfile "${CI_PROJECT_DIR}/Dockerfile"
+      --destination "${IMAGE_NAME}"
+  rules:
+    - if: $CI_COMMIT_BRANCH
+      exists:
+        - Dockerfile
+
+deploy_app:
+  image: dtzar/helm-kubectl:3.9
+  stage: deploy
+  script:
+    - kubectl config use-context $GITLAB_AGENT
+    - cd k8s/finenomore
+    - helm upgrade --install finenomore . --set finenomore.image=${IMAGE_NAME} --set finenomore.imagePullSecrets=gitlab-credentials --atomic
