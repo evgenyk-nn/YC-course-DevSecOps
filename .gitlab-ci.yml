@@ -1,10 +1,25 @@
+include:
+  - template: Security/Secret-Detection.gitlab-ci.yml
+
 stages:
+  - pre-build
   - build
-  - deploy
+  # - deploy
 
 variables:
   IMAGE_NAME: "${CI_REGISTRY_IMAGE}/${CI_COMMIT_REF_SLUG}:${CI_COMMIT_SHA}"
   GITLAB_AGENT: "$CI_PROJECT_PATH:finenomore-gitlab-agent"
+
+secret_detection:
+  stage: pre-build
+  variables:
+    SECRET_DETECTION_HISTORIC_SCAN: "true"
+    GIT_STRATEGY: "clone"
+  allow_failure: false
+  script:
+    - apk add jq
+    - /analyzer run
+    - exit $(eval "cat gl-secret-detection-report.json | jq --raw-output '.vulnerabilities | length'")
 
 kaniko-build:
   image:
@@ -21,10 +36,10 @@ kaniko-build:
       exists:
         - Dockerfile
 
-deploy_app:
-  image: dtzar/helm-kubectl:3.9
-  stage: deploy
-  script:
-    - kubectl config use-context $GITLAB_AGENT
-    - cd k8s/finenomore
-    - helm upgrade --install finenomore . --set finenomore.image=${IMAGE_NAME} --set finenomore.imagePullSecrets=gitlab-credentials --atomic
+# deploy_app:
+#   image: dtzar/helm-kubectl:3.9
+#   stage: deploy
+#   script:
+#     - kubectl config use-context $GITLAB_AGENT
+#     - cd k8s/finenomore
+#     - helm upgrade --install finenomore . --set finenomore.image=${IMAGE_NAME} --set finenomore.imagePullSecrets=gitlab-credentials --atomic
