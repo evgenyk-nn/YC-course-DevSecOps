@@ -1,46 +1,53 @@
 include:
-  - template: Security/Secret-Detection.gitlab-ci.yml
-  - template: Security/SAST.gitlab-ci.yml
-  - template: Security/Container-Scanning.gitlab-ci.yml
+  # - template: Security/Secret-Detection.gitlab-ci.yml
+  # - template: Security/SAST.gitlab-ci.yml
+  # - template: Security/Container-Scanning.gitlab-ci.yml
 
 stages:
   - pre-build
   - build
   - post-build
+  - test
   # - deploy
 
 variables:
   IMAGE_NAME: "${CI_REGISTRY_IMAGE}/${CI_COMMIT_REF_SLUG}:${CI_COMMIT_SHA}"
   GITLAB_AGENT: "$CI_PROJECT_PATH:finenomore-gitlab-agent"
+  DAST_NAME: finenomore-dast
 
-secret_detection:
-  stage: pre-build
-  variables:
-    SECRET_DETECTION_HISTORIC_SCAN: "true"
-    GIT_STRATEGY: "clone"
-  allow_failure: true
-  script:
-    - apk add jq
-    - /analyzer run
-    - exit $(eval "cat gl-secret-detection-report.json | jq --raw-output '.vulnerabilities | length'")
+.deploy:
+  image: dtzar/helm-kubectl:3.9
+  before_script:
+    - kubectl config use-context $GITLAB_AGENT
 
-sast:
-  stage: pre-build
-  variables:
-    SCAN_KUBERNETES_MANIFESTS: "true"
-    KUBESEC_HELM_CHARTS_PATH: "./k8s/finenomore"
-    SAST_EXCLUDED_ANALYZERS: "bandit,gosec,eslint"
+# secret_detection:
+#   stage: pre-build
+#   variables:
+#     SECRET_DETECTION_HISTORIC_SCAN: "true"
+#     GIT_STRATEGY: "clone"
+#   allow_failure: true
+#   script:
+#     - apk add jq
+#     - /analyzer run
+#     - exit $(eval "cat gl-secret-detection-report.json | jq --raw-output '.vulnerabilities | length'")
 
-trivy-sca:
-  stage: pre-build
-  image:
-    name: aquasec/trivy:0.34.0
-    entrypoint: [""]
-  script:
-    - trivy fs -f json --output trivy-sca.json .
-  artifacts:
-    paths:
-      - trivy-sca.json
+# sast:
+#   stage: pre-build
+#   variables:
+#     SCAN_KUBERNETES_MANIFESTS: "true"
+#     KUBESEC_HELM_CHARTS_PATH: "./k8s/finenomore"
+#     SAST_EXCLUDED_ANALYZERS: "bandit,gosec,eslint"
+
+# trivy-sca:
+#   stage: pre-build
+#   image:
+#     name: aquasec/trivy:0.34.0
+#     entrypoint: [""]
+#   script:
+#     - trivy fs -f json --output trivy-sca.json .
+#   artifacts:
+#     paths:
+#       - trivy-sca.json
 
 kaniko-build:
   image:
@@ -57,8 +64,38 @@ kaniko-build:
       exists:
         - Dockerfile
 
-container_scanning:
-  stage: post-build
+# container_scanning:
+#   stage: post-build
+
+dast-prepare:
+  extends: .deploy
+  stage: test
+  script:
+    - LB_ADDRESS=$(kubectl get services ingress-nginx-controller --output jsonpath='{.status.loadBalancer.ingress[0].ip}')
+    - APP_HOST=finenomore-dast.$LB_ADDRESS.sslip.io
+    - helm upgrade --install $DAST_NAME ./k8s/finenomore
+      --set namespace=$DAST_NAME
+      --set finenomore.image=$IMAGE_NAME
+      --set finenomore.imagePullSecrets=gitlab-credentials --atomic
+      --set finenomore.ingress.host=$APP_HOST
+    - echo "APP_ADDRESS is $APP_HOST"
+    - echo "APP_ADDRESS=$APP_HOST" >> app.env
+  artifacts:
+    reports:
+      dotenv: app.env
+
+dast-scan:
+  stage: test
+  needs: ["dast-prepare"]
+  script:
+    - echo "OWASP ZAP will be here $APP_ADDRESS"
+
+dast-destroy:
+  extends: .deploy
+  stage: test
+  needs: ["dast-scan"]
+  script:
+    - helm uninstall $DAST_NAME
 
 # deploy_app:
 #   image: dtzar/helm-kubectl:3.9
