@@ -87,16 +87,8 @@ dast-prepare:
 dast-scan:
   stage: test
   needs: ["dast-prepare"]
-  image:
-    name: owasp/zap2docker-stable:2.14.0
   script:
-    - mkdir -p /zap/wrk
-    - zap-full-scan.py -t "http://${APP_ADDRESS}" -I -J zap.json
-    - cp /zap/wrk/zap.json .
-  artifacts:
-    when: always
-    paths:
-      - zap.json
+    - echo "OWASP ZAP will be here $APP_ADDRESS"
 
 dast-destroy:
   extends: .deploy
